@@ -1775,6 +1775,9 @@ RUN --mount=type=cache,id=ci-$TARGETARCH-$DEPENDENCY_CACHE_EPOCH,target=/root/.c
 
 COPY --from=scripts entrypoint_ci.sh /entrypoint
 COPY --from=scripts entrypoint_exec.sh /entrypoint-exec
+COPY --from=scripts sync_dags_from_s3.py /usr/local/bin/sync-dags-from-s3
+# Install boto3 for S3 DAG sync utility
+RUN pip install --root-user-action ignore boto3
 RUN chmod a+x /entrypoint /entrypoint-exec
 
 

@@ -251,10 +251,13 @@ spec:
             {{- end }}
         {{- end }}
         {{- if and (.Values.dags.gitSync.enabled) (not .Values.dags.persistence.enabled) }}
-          {{- include "git_sync_container" (dict "Values" .Values "is_init" "true" "Template" .Template) | nindent 8 }}
+          {{- include "git_sync_container" . | nindent 8 }}
         {{- end }}
-        {{- if .Values.workers.extraInitContainers }}
-          {{- tpl (toYaml .Values.workers.extraInitContainers) . | nindent 8 }}
+        {{- if .Values.dags.s3Sync.enabled }}
+          {{- include "s3Sync.container" (dict "Values" .Values "is_init" "false") | nindent 8 }}
+        {{- end }}
+        {{- if .Values.workers.extraContainers }}
+          {{- tpl (toYaml .Values.workers.extraContainers) . | nindent 8 }}
         {{- end }}
       containers:
         - name: worker

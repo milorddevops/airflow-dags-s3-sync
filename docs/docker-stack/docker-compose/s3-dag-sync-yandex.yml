@@ -1,0 +1,170 @@
+# Example: Yandex Object Storage DAG Sync
+#
+# This docker-compose example shows how to configure Airflow with S3 DAG sync
+# using Yandex Object Storage as the S3-compatible backend.
+#
+# Prerequisites:
+# 1. Yandex Cloud account with Object Storage service
+# 2. Service account with Object Storage read access
+# 3. Static access key created for the service account
+#
+# Setup:
+# 1. Create .env file with your Yandex credentials:
+#    YC_ACCESS_KEY_ID=your_static_access_key_id
+#    YC_SECRET_ACCESS_KEY=your_secret_access_key
+#    S3_BUCKET=your-bucket-name
+#    YC_REGION=ru-central1
+#
+# 2. Run: docker-compose -f docker-compose/s3-dag-sync-yandex.yml up -d
+#
+# Documentation: https://airflow.apache.org/docs/docker-stack/s3-dag-sync.html
+#
+# Yandex Object Storage Documentation:
+# https://cloud.yandex.com/en/docs/storage/
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-webserver:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # Yandex Object Storage DAG Sync Configuration
+      S3_BUCKET: ${S3_BUCKET:-my-airflow-dags}
+      S3_ACCESS_KEY_ID: ${YC_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${YC_SECRET_ACCESS_KEY}
+      S3_ENDPOINT_URL: https://storage.yandexcloud.net
+      S3_REGION: ${YC_REGION:-ru-central1}
+      S3_VERIFY_SSL: true  # Yandex uses valid SSL certificates
+      
+      # Optional: Custom sync settings
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+      # Initial setup
+      _AIRFLOW_WWW_USER_CREATE: true
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _AIRFLOW_DB_MIGRATE: true
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow webserver
+      "
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # Yandex Object Storage DAG Sync Configuration (same as webserver)
+      S3_BUCKET: ${S3_BUCKET:-my-airflow-dags}
+      S3_ACCESS_KEY_ID: ${YC_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${YC_SECRET_ACCESS_KEY}
+      S3_ENDPOINT_URL: https://storage.yandexcloud.net
+      S3_REGION: ${YC_REGION:-ru-central1}
+      S3_VERIFY_SSL: true
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow scheduler
+      "
+
+  airflow-worker:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # Yandex Object Storage DAG Sync Configuration (same as webserver)
+      S3_BUCKET: ${S3_BUCKET:-my-airflow-dags}
+      S3_ACCESS_KEY_ID: ${YC_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${YC_SECRET_ACCESS_KEY}
+      S3_ENDPOINT_URL: https://storage.yandexcloud.net
+      S3_REGION: ${YC_REGION:-ru-central1}
+      S3_VERIFY_SSL: true
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow celery worker
+      "
+
+volumes:
+  postgres-db:
+  airflow-dags:
+  airflow-logs:

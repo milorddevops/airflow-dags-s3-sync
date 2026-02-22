@@ -54,17 +54,17 @@ metadata:
   {{- end }}
 spec:
   replicas: {{ .Values.dagProcessor.replicas }}
-  {{- if ne $revisionHistoryLimit "" }}
+{{- if ne $revisionHistoryLimit "" }}
   revisionHistoryLimit: {{ $revisionHistoryLimit }}
-  {{- end }}
+{{- end }}
   selector:
     matchLabels:
       tier: airflow
       component: dag-processor
       release: {{ .Release.Name }}
-  {{- if .Values.dagProcessor.strategy }}
+{{- if .Values.dagProcessor.strategy }}
   strategy: {{- toYaml .Values.dagProcessor.strategy | nindent 4 }}
-  {{- end }}
+{{- end }}
   template:
     metadata:
       labels:
@@ -94,10 +94,10 @@ spec:
       priorityClassName: {{ .Values.dagProcessor.priorityClassName }}
       {{- end }}
       nodeSelector: {{- toYaml $nodeSelector | nindent 8 }}
-      affinity:
       {{- if $affinity }}
-        {{- toYaml $affinity | nindent 8 }}
+      affinity: {{- toYaml $affinity | nindent 8 }}
       {{- else }}
+      affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - podAffinityTerm:
@@ -144,6 +144,9 @@ spec:
         {{- if and (.Values.dags.gitSync.enabled) (not .Values.dags.persistence.enabled) }}
           {{- include "git_sync_container" (dict "Values" .Values "is_init" "true" "Template" .Template) | nindent 8 }}
         {{- end }}
+        {{- if .Values.dags.s3Sync.enabled }}
+          {{- include "s3Sync.container" (dict "Values" .Values "is_init" "true" "$" $) | nindent 8 }}
+        {{- end }}
         {{- if .Values.dagProcessor.extraInitContainers }}
           {{- tpl (toYaml .Values.dagProcessor.extraInitContainers) . | nindent 8 }}
         {{- end }}
@@ -175,7 +178,7 @@ spec:
               subPath: {{ .Values.logs.persistence.subPath }}
               {{- end }}
             {{- include "airflow_config_mount" . | nindent 12 }}
-            {{- if or .Values.dags.persistence.enabled .Values.dags.gitSync.enabled }}
+            {{- if or .Values.dags.persistence.enabled .Values.dags.gitSync.enabled .Values.dags.s3Sync.enabled }}
               {{- include "airflow_dags_mount" . | nindent 12 }}
             {{- end }}
           envFrom: {{- include "custom_airflow_environment_from" . | default "\n  []" | indent 10 }}
@@ -195,9 +198,6 @@ spec:
                 {{- else }}
                   {{- include "dag_processor_liveness_check_command" . | indent 14 }}
                 {{- end }}
-        {{- if .Values.dags.gitSync.enabled }}
-          {{- include "git_sync_container" . | indent 8 }}
-        {{- end }}
         {{- if .Values.dagProcessor.logGroomerSidecar.enabled }}
         - name: dag-processor-log-groomer
           resources: {{- toYaml .Values.dagProcessor.logGroomerSidecar.resources | nindent 12 }}
@@ -264,7 +264,7 @@ spec:
         - name: dags
           persistentVolumeClaim:
             claimName: {{ template "airflow_dags_volume_claim" . }}
-        {{- else if .Values.dags.gitSync.enabled }}
+        {{- else if or .Values.dags.gitSync.enabled .Values.dags.s3Sync.enabled }}
         - name: dags
           emptyDir: {{- toYaml (default (dict) .Values.dags.gitSync.emptyDirConfig) | nindent 12 }}
         {{- end }}

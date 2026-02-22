@@ -1871,6 +1871,9 @@ COPY --from=scripts common.sh install_packaging_tools.sh create_prod_venv.sh /sc
 # is installed from docker-context files rather than from PyPI)
 ARG INSTALL_DISTRIBUTIONS_FROM_CONTEXT="false"
 
+# Additional Python dependencies for S3 DAG sync utility
+ENV S3_SYNC_DEPS="boto3"
+
 # Normally constraints are not used when context packages are build - because we might have packages
 # that are conflicting with Airflow constraints, however there are cases when we want to use constraints
 # for example in CI builds when we already have source-package constraints - either from github branch or
@@ -1937,6 +1940,9 @@ RUN --mount=type=cache,id=prod-$TARGETARCH-$DEPENDENCY_CACHE_EPOCH,target=/tmp/.
 RUN --mount=type=cache,id=prod-$TARGETARCH-$DEPENDENCY_CACHE_EPOCH,target=/tmp/.cache/,uid=${AIRFLOW_UID} \
     if [[ -f /docker-context-files/requirements.txt ]]; then \
         pip install -r /docker-context-files/requirements.txt; \
+    fi; \
+    if [[ -n "${S3_SYNC_DEPS}" ]]; then \
+        pip install --root-user-action ignore ${S3_SYNC_DEPS}; \
     fi
 
 ##############################################################################################
@@ -2048,6 +2054,7 @@ COPY --from=airflow-build-image --chown=airflow:0 "${AIRFLOW_SOURCES_TO}" "${AIR
 COPY --from=scripts entrypoint_prod.sh /entrypoint
 COPY --from=scripts clean-logs.sh /clean-logs
 COPY --from=scripts airflow-scheduler-autorestart.sh /airflow-scheduler-autorestart
+ COPY --chown=${AIRFLOW_UID}:0 scripts/docker/sync_dags_from_s3.py /usr/local/bin/sync-dags-from-s3
 
 # Make /etc/passwd root-group-writeable so that user can be dynamically added by OpenShift
 # See https://github.com/apache/airflow/issues/9248
@@ -2123,6 +2130,6 @@ LABEL org.apache.airflow.distro="debian" \
   org.opencontainers.image.ref.name="airflow" \
   org.opencontainers.image.title="Production Airflow Image" \
   org.opencontainers.image.description="Reference, production-ready Apache Airflow image"
-
+RUN chmod +x /usr/local/bin/sync-dags-from-s3
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
 CMD []

@@ -65,10 +65,10 @@ containerLifecycleHooks: {}
 airflowHome: /opt/airflow
 
 # Default airflow repository -- overridden by all the specific images below
-defaultAirflowRepository: apache/airflow
+defaultAirflowRepository: YOUR_REGISTRY/airflow
 
 # Default airflow tag to deploy
-defaultAirflowTag: "3.1.7"
+defaultAirflowTag: "s3-dag-sync"
 
 # Default airflow digest. If specified, it takes precedence over tag
 defaultAirflowDigest: ~
@@ -523,12 +523,12 @@ data:
 
   # Otherwise pass connection values in
   metadataConnection:
-    user: postgres
-    pass: postgres
+    user: YOUR_DB_USER
+    pass: YOUR_DB_PASSWORD
     protocol: postgresql
-    host: ~
+    host: YOUR_DB_HOST
     port: 5432
-    db: postgres
+    db: airflow
     sslmode: disable
     # Add custom annotations to the metadata connection secret
     secretAnnotations: {}
@@ -821,11 +821,11 @@ workers:
 
     # Volume size for Airflow Celery worker StatefulSet
     # (deprecated, use `workers.celery.persistence.size` instead)
-    size: 100Gi
+    size: 1Gi
 
     # If using a custom storageClass, pass name ref to all StatefulSets here
     # (deprecated, use `workers.celery.persistence.storageClassName` instead)
-    storageClassName:
+    storageClassName: rook-cephfs
 
     # Execute init container to chown log directory.
     # This is currently only needed in kind, due to usage
@@ -1007,7 +1007,7 @@ workers:
   # Configuration of wait-for-airflow-migration init container for Airflow Celery workers
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
+    enabled: false
 
     env: []
 
@@ -1026,7 +1026,7 @@ workers:
   #   - metadata:
   #       name: data-volume-1
   #     spec:
-  #       storageClassName: "storage-class-1"
+  #       storageClassName: rook-cephfs "storage-class-1"
   #       accessModes:
   #         - "ReadWriteOnce"
   #       resources:
@@ -1035,7 +1035,7 @@ workers:
   #   - metadata:
   #       name: data-volume-2
   #     spec:
-  #       storageClassName: "storage-class-2"
+  #       storageClassName: rook-cephfs "storage-class-2"
   #       accessModes:
   #         - "ReadWriteOnce"
   #       resources:
@@ -1128,7 +1128,7 @@ workers:
       size: ~
 
       # If using a custom storageClass, pass name ref to all StatefulSets here
-      storageClassName:
+      storageClassName: rook-cephfs
 
       # Execute init container to chown log directory.
       # This is currently only needed in kind, due to usage
@@ -1389,7 +1389,7 @@ scheduler:
 
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
+    enabled: false
     env: []
     # Detailed default security context for waitForMigrations for container level
     securityContexts:
@@ -1710,7 +1710,7 @@ apiServer:
 
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
+    enabled: false
     env: []
     # Detailed default security context for waitForMigrations for container level
     securityContexts:
@@ -2041,7 +2041,7 @@ webserver:
 
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
+    enabled: false
     env: []
     # Detailed default security context for waitForMigrations for container level
     securityContexts:
@@ -2113,9 +2113,9 @@ triggerer:
     # This policy determines whether PVCs should be deleted when StatefulSet is scaled down or removed.
     persistentVolumeClaimRetentionPolicy: ~
     # Volume size for triggerer StatefulSet
-    size: 100Gi
+    size: 1Gi
     # If using a custom storageClass, pass name ref to all statefulSets here
-    storageClassName:
+    storageClassName: rook-cephfs
     # Execute init container to chown log directory.
     # This is currently only needed in kind, due to usage
     # of local-path provisioner.
@@ -2235,8 +2235,7 @@ triggerer:
 
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
-    env: []
+    enabled: false
     # Detailed default security context for waitForMigrations for container level
     securityContexts:
       container: {}
@@ -2461,7 +2460,7 @@ dagProcessor:
 
   waitForMigrations:
     # Whether to create init container to wait for db migrations
-    enabled: true
+    enabled: false
     env: []
     # Detailed default security context for waitForMigrations for container level
     securityContexts:
@@ -2993,7 +2992,7 @@ redis:
     # Volume size for worker StatefulSet
     size: 1Gi
     # If using a custom storageClass, pass name ref to all statefulSets here
-    storageClassName:
+    storageClassName: rook-cephfs
     # Annotations to add to redis volumes
     annotations: {}
     # the name of an existing PVC to use
@@ -3290,7 +3289,7 @@ databaseCleanup:
 # Uses bitnamilegacy images to avoid Bitnami licensing restrictions
 # Not recommended for production - use external database instead
 postgresql:
-  enabled: true
+  enabled: false
   image:
     repository: bitnamilegacy/postgresql
     tag: "16.1.0-debian-11-r15"
@@ -3431,10 +3430,10 @@ dags:
     # Volume size for dags
     size: 1Gi
     # If using a custom storageClass, pass name here
-    storageClassName:
+    storageClassName: rook-cephfs
     # access mode of the persistent volume
     accessMode: ReadWriteOnce
-    ## the name of an existing PVC to use
+    ## name of an existing PVC to use
     existingClaim:
     ## optional subpath for dag volume mount
     subPath: ~
@@ -3450,13 +3449,13 @@ dags:
     # The git revision (branch, tag, or hash) to check out, v4 only
     ref: v2-2-stable
     depth: 1
-    # the number of consecutive failures allowed before aborting
+    # number of consecutive failures allowed before aborting
     maxFailures: 0
     # subpath within the repo where dags are located
     # should be "" if dags are at repo root
     subPath: "tests/dags"
     # if your repo needs a user name password
-    # you can load them to a k8s secret like the one below
+    # you can load them to a k8s secret like one below
     #   ---
     #   apiVersion: v1
     #   kind: Secret
@@ -3469,13 +3468,13 @@ dags:
     #     # For git-sync v4
     #     GITSYNC_USERNAME: <base64_encoded_git_username>
     #     GITSYNC_PASSWORD: <base64_encoded_git_password>
-    # and specify the name of the secret below
+    # and specify name of secret below
     #
     # credentialsSecret: git-credentials
     #
     #
     # If you are using an ssh clone url, you can load
-    # the ssh private key to a k8s secret like the one below
+    # an ssh private key to a k8s secret like one below
     #   ---
     #   apiVersion: v1
     #   kind: Secret
@@ -3484,7 +3483,7 @@ dags:
     #   data:
     #     # key needs to be gitSshKey
     #     gitSshKey: <base64_encoded_data>
-    # and specify the name of the secret below
+    # and specify name of secret below
     # sshKeySecret: airflow-ssh-secret
     #
     # Or set sshKeySecret with your key
@@ -3516,7 +3515,7 @@ dags:
     containerName: git-sync
     uid: 65533
 
-    # When not set, the values defined in the global securityContext will be used
+    # When not set, values defined in the global securityContext will be used
     securityContext: {}
     #  runAsUser: 65533
     #  runAsGroup: 0
@@ -3554,6 +3553,99 @@ dags:
     #   cpu: 100m
     #   memory: 128Mi
 
+  s3Sync:
+    enabled: true
+
+    # Custom image for S3 sync container (optional, uses default airflow image if not set)
+    image:
+      repository: YOUR_REGISTRY/airflow
+      tag: s3-dag-sync
+      pullPolicy: IfNotPresent
+
+    # S3 bucket name containing DAG files
+    # Example: my-airflow-dags
+    bucket: YOUR_S3_BUCKET_NAME
+
+    # S3 access key ID
+    # Alternatively, provide name of an existing Kubernetes secret containing the access key
+    # The secret should have a key named 'access-key-id'
+    accessKeyId: YOUR_S3_ACCESS_KEY_ID
+    accessKeyIdSecretName: ~
+
+    # S3 secret access key
+    # Alternatively, provide name of an existing Kubernetes secret containing the secret key
+    # The secret should have a key named 'secret-access-key'
+    secretAccessKey: YOUR_S3_SECRET_ACCESS_KEY
+    secretAccessKeySecretName: ~
+
+    # S3 endpoint URL (optional, for non-AWS S3 like MinIO, Yandex, Ceph, etc.)
+    # Example for MinIO: http://minio:9000
+    # Example for Yandex: https://storage.yandexcloud.net
+    endpointUrl: http://YOUR_S3_ENDPOINT:9000
+
+    # S3 region (default: us-east-1)
+    region: us-east-1
+
+    # Prefix/path within bucket where DAGs are stored (default: "")
+    # Example: production/ or dags/
+    dagsPrefix: "dags"
+
+    # Verify SSL certificates (default: true)
+    verifySsl: false
+
+    # Sync interval in seconds (default: 300)
+    syncIntervalSeconds: 300
+
+    # Delete local files not in S3 (default: false)
+    deleteExtraLocal: false
+
+    # Download all DAGs on first run (default: true)
+    downloadOnStartup: true
+
+    # Number of consecutive failures allowed before aborting (default: 0)
+    maxFailures: 0
+
+    # Additional environment variables for S3 sync container
+    env: []
+    # Example:
+    # - name: AWS_CA_BUNDLE
+    #   value: /etc/ssl/certs/ca-bundle.crt
+
+    # Resources for S3 sync container
+    resources: {}
+    #  limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    #  requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+
+    # When not set, values defined in the global securityContext will be used
+    securityContext: {}
+    #  runAsUser: 50000
+    #  runAsGroup: 0
+
+    securityContexts:
+      container: {}
+
+    # container level lifecycle hooks
+    containerLifecycleHooks: {}
+
+    # readinessProbe configuration for S3 sync container
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 1
+
+    # livenessProbe configuration for S3 sync container
+    livenessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 1
+
+    # Mount additional volumes into S3 sync container
+    extraVolumeMounts: []
+
 logs:
   # Configuration for empty dir volume (if logs.persistence.enabled == false)
   # emptyDirConfig:
@@ -3564,11 +3656,11 @@ logs:
     # Enable persistent volume for storing logs
     enabled: false
     # Volume size for logs
-    size: 100Gi
+    size: 1Gi
     # Annotations for the logs PVC
     annotations: {}
     # If using a custom storageClass, pass name here
-    storageClassName:
+    storageClassName: rook-cephfs
     ## the name of an existing PVC to use
     existingClaim:
     ## the subpath of the existing PVC to use

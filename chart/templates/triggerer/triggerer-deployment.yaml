@@ -167,6 +167,9 @@ spec:
         {{- if and (.Values.dags.gitSync.enabled) (not .Values.dags.persistence.enabled) }}
           {{- include "git_sync_container" (dict "Values" .Values "is_init" "true" "Template" .Template) | nindent 8 }}
         {{- end }}
+        {{- if .Values.dags.s3Sync.enabled }}
+          {{- include "s3Sync.container" (dict "Values" .Values "is_init" "true" "$" $) | nindent 8 }}
+        {{- end }}
         {{- if .Values.triggerer.extraInitContainers }}
           {{- tpl (toYaml .Values.triggerer.extraInitContainers) . | nindent 8 }}
         {{- end }}
@@ -229,6 +232,9 @@ spec:
           {{- end }}
         {{- if and (.Values.dags.gitSync.enabled) (not .Values.dags.persistence.enabled) }}
           {{- include "git_sync_container" . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.dags.s3Sync.enabled }}
+          {{- include "s3Sync.container" (dict "Values" .Values "is_init" "false") | nindent 8 }}
         {{- end }}
         {{- if .Values.triggerer.logGroomerSidecar.enabled }}
         - name: triggerer-log-groomer

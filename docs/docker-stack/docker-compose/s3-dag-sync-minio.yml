@@ -1,0 +1,201 @@
+# Example: MinIO DAG Sync
+#
+# This docker-compose example shows how to configure Airflow with S3 DAG sync
+# using MinIO as the S3-compatible storage backend.
+#
+# Prerequisites:
+# 1. Docker and Docker Compose installed
+#
+# Setup:
+# 1. Run: docker-compose -f docker-compose/s3-dag-sync-minio.yml up -d
+# 2. Access MinIO console at http://localhost:9001
+#    Username: minioadmin
+#    Password: minioadmin
+# 3. Create a bucket named "airflow-dags" and upload your DAG files
+#
+# Documentation: https://airflow.apache.org/docs/docker-stack/s3-dag-sync.html
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Console UI
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Create MinIO bucket on startup
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      bash -c "
+      sleep 10 &&
+      mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc mb myminio/${S3_BUCKET:-airflow-dags} --ignore-existing &&
+      echo 'MinIO bucket created successfully'
+      "
+
+  airflow-webserver:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # MinIO S3 DAG Sync Configuration
+      S3_BUCKET: ${S3_BUCKET:-airflow-dags}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: us-east-1
+      S3_VERIFY_SSL: false  # MinIO uses self-signed certificates by default
+      
+      # Optional: Custom sync settings
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+      # Initial setup
+      _AIRFLOW_WWW_USER_CREATE: true
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _AIRFLOW_DB_MIGRATE: true
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow webserver
+      "
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # MinIO S3 DAG Sync Configuration (same as webserver)
+      S3_BUCKET: ${S3_BUCKET:-airflow-dags}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: us-east-1
+      S3_VERIFY_SSL: false
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow scheduler
+      "
+
+  airflow-worker:
+    image: apache/airflow:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Airflow Core Configuration
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+      
+      # MinIO S3 DAG Sync Configuration (same as webserver)
+      S3_BUCKET: ${S3_BUCKET:-airflow-dags}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: us-east-1
+      S3_VERIFY_SSL: false
+      S3_SYNC_INTERVAL_SECONDS: ${S3_SYNC_INTERVAL_SECONDS:-300}
+      S3_DAGS_PREFIX: ${S3_DAGS_PREFIX:-}
+      S3_DOWNLOAD_ON_STARTUP: ${S3_DOWNLOAD_ON_STARTUP:-true}
+      S3_DELETE_EXTRA_LOCAL: ${S3_DELETE_EXTRA_LOCAL:-false}
+      
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    command: >
+      bash -c "
+      sync-dags-from-s3 &&
+      exec airflow celery worker
+      "
+
+volumes:
+  postgres-db:
+  airflow-dags:
+  airflow-logs:
+  minio-data:
